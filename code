@@ -1,0 +1,165 @@
+import numpy as np
+import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+
+while True:
+    weather = input("계절을 입력하세요: ")
+    if weather == '봄':
+        mixed_layer_T = 15
+        mixed_layer_D = 50
+        deep_layer_T = 5
+        deep_layer_D = 150
+        break
+    elif weather == '여름':
+        mixed_layer_T = 24
+        mixed_layer_D = 20
+        deep_layer_T = 5
+        deep_layer_D = 180
+        break
+    elif weather == '가을':
+        mixed_layer_T = 20
+        mixed_layer_D = 75
+        deep_layer_T = 5
+        deep_layer_D = 200
+        break
+    elif weather == '겨울':
+        mixed_layer_T = 10
+        mixed_layer_D = 150
+        deep_layer_T = 5
+        deep_layer_D = 300
+        break
+    else:
+        print('계절을 입력하세요(ex: 봄, 여름, 가을, 겨울)')
+
+# Leroy 공식에 따른 음속 계산 함수
+def sound_speed(T, S=35, D=0):
+    return 1448.96 + 4.591 * T - 0.05304 * T ** 2 + 0.00022 * T ** 3 + (1.39 - 0.012 * T) * (S - 35) + 0.0167 * D
+
+
+# 수온 프로파일
+def temperature_profile(depth):
+    if depth <= mixed_layer_D:
+        return mixed_layer_T
+    elif depth <= deep_layer_D:
+        return mixed_layer_T - (mixed_layer_T - deep_layer_T) * (depth - mixed_layer_D) / (deep_layer_D - mixed_layer_D)
+    else:
+        return deep_layer_T
+
+
+# 음속 프로파일
+def sound_speed_profile(depth):
+    return sound_speed(temperature_profile(depth), 35, depth)
+
+
+# 음파의 경로 계산
+def compute_ray_path(initial_angles, max_depth=400, depth_step=1, max_range=400):
+    x, y, z = [0], [0], [0]
+    angle_h, angle_v = initial_angles
+    for depth in np.arange(0, max_depth, depth_step):
+        current_speed = sound_speed_profile(depth / 100)
+        next_speed = sound_speed_profile((depth + depth_step) / 100)
+
+        # Snell's law 적용
+        if next_speed == 0:  # Division by zero check
+            break
+
+        angle_v = np.arcsin(np.clip((current_speed / next_speed) * np.sin(angle_v), -1, 1))
+
+        # 새로운 위치 계산
+        new_x = x[-1] + depth_step * np.sin(angle_v) * np.cos(angle_h)
+        new_y = y[-1] + depth_step * np.sin(angle_v) * np.sin(angle_h)
+        new_z = z[-1] + depth_step * np.cos(angle_v)
+
+        x.append(new_x)
+        y.append(new_y)
+        z.append(new_z)
+
+        # 3차원 공간의 한쪽 끝에 도달할 때까지 경로 그리기
+        if new_x > max_range or new_y > max_range or new_z > max_range:
+            break
+
+    return x, y, z
+
+
+# 모든 방향으로 음파 경로 계산 (수면 위 꼭짓점 (0, 0, 0) 에서 시작)
+horizontal_angles = np.linspace(0, 2 * np.pi, 30)  # 수평 각도 분해능 증가
+vertical_angles = np.linspace(-np.pi / 2, np.pi / 2, 30)  # 수직 각도 분해능 증가
+paths = [compute_ray_path((h, v), max_range=400) for h in horizontal_angles for v in vertical_angles]
+
+# 음파 경로를 공간으로 표시
+x_coords = []
+y_coords = []
+z_coords = []
+
+for path in paths:
+    x, y, z = path
+    x_coords.extend(x)
+    y_coords.extend(y)
+    z_coords.extend(z)
+
+# 음파 경로 시각화
+fig = go.Figure()
+
+# 점 구름으로 음파 경로 추가
+fig.add_trace(go.Scatter3d(
+    x=x_coords,
+    y=y_coords,
+    z=z_coords,
+    mode='markers',
+    marker=dict(size=2, color='blue'),
+    opacity=0.7,
+    name='Sound Paths'
+))
+
+# 소나 발생지점 표시
+fig.add_trace(go.Scatter3d(
+    x=[0],
+    y=[0],
+    z=[0],
+    mode='markers',
+    marker=dict(
+        size=5,
+        color='yellow',
+    ),
+    name='Sonar Source'
+))
+
+# 음속 프로파일 계산
+depths = np.linspace(0, 400, 100)
+speeds = [sound_speed_profile(depth) for depth in depths]
+
+# 음속 프로파일 그래프 추가
+fig.add_trace(go.Scatter3d(
+    x=[0]*len(depths),
+    y=[0]*len(depths),
+    z=depths,
+    mode='lines',
+    line=dict(color='red', width=3),
+    name='Sound Speed Profile'
+))
+
+# 그래프 설정
+fig.update_layout(
+    scene=dict(
+        xaxis=dict(title='X (m)', range=[0, 400]),
+        yaxis=dict(title='Y (m)', range=[0, 400]),
+        zaxis=dict(title='Depth (m)', range=[0, 400], autorange='reversed'),
+    ),
+    title='3D Sonar Coverage Visualization from Surface (0, 0, 0)',
+)
+
+# 깊이에 따른 음속 프로파일 그래프 출력
+depths = np.linspace(0, 400, 100)
+speeds = [sound_speed_profile(depth) for depth in depths]
+
+plt.figure(figsize=(8, 6))
+plt.plot(speeds, depths, color='red', linewidth=3)
+plt.title('Sound Speed Profile')
+plt.xlabel('Sound Speed (m/s)')
+plt.ylabel('Depth (m)')
+plt.gca().invert_yaxis()
+plt.grid(True)
+plt.show()
+
+# 그래프 보여주기
+fig.show()
